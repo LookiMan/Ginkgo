@@ -10,67 +10,45 @@ If the "UII" column contains a link, open it and download PDF with Business Case
 Your solution should be submitted and tested on Robocloud. 
 -> contact Andrew to get an access after the code is ready or you can create your own account for free!
 Store downloaded files and Excel sheet to the root of the output folder
+
+TODO:
+
+We are looking for people that like going the extra mile if time allows or if your curiosity gets the best of you :солнцезащитные_очки: 
+Extract data from PDF. You need to get the data from Section A in each PDF. 
+Then compare the value "Name of this Investment" with the column "Investment Title", 
+and the value "Unique Investment Identifier (UII)" with the column "UII".
+
 """
 
-import os
 import time
+import os
 
 from RPA.Browser.Selenium import Selenium
-from RPA.Excel.Files import Files
-from RPA.HTTP import HTTP
+from selenium.webdriver.common.by import By
+
+import utils
 
 
 browser = Selenium()
-http = HTTP()
+browser.set_download_directory(utils.output_direcrory)
 
 
-def download_file(src, filename):
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_10_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/39.0.2171.95 Safari/537.36",
-        "Cookie": "SSESS04ae24068a2b6b9bb1975f7ad3e4d1c2=RgFK3bynIDSPQ8SIpjFz6CHTbFX94c7u-TvTB4wspe8;has_js=1;wstact=b50a07eb65d8937f411969c0c47e320b3408887d7966a684bde8ce9beda89c2b",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-        "Host": "itdashboard.gov",
-        "Accept-Language": "ru-RU,ru;q=0.8,en-US;q=0.5,en;q=0.3",
-        "Accept-Encoding": "gzip, deflate, br",
-        "Connection": "keep-alive",
-        "Referer": f"https://itdashboard.gov/drupal/summary/422/{src}",
-        "Upgrade-Insecure-Requests": "1",
-        "Sec-Fetch-Dest": "document",
-        "Sec-Fetch-Mode": "navigate",
-        "Sec-Fetch-Site": "same-origin",
-        "Sec-Fetch-User": "?1",
-        "DNT": "1",
-        "Sec-GPC": "1",
-        "Pragma": "no-cache",
-        "Cache-Control": "no-cache",
-    }
+def write_agencies(filename: str, data: dict, sheet_name: str = None) -> None:
+    app = utils.get_exel_app(filename, sheet_name)
 
-    url = f"https://itdashboard.gov/api/v1/ITDB2/businesscase/pdf/generate/uii/{src}"
+    for index, item in enumerate(data, 1):
+        app.set_cell_value(row=index, column=1, value=item["agency_name"])
+        app.set_cell_value(row=index, column=2, value=item["spending"])
 
-    directory = os.path.dirname(filename)
-
-    if not os.path.exists(directory):
-        os.mkdir(directory)
-
-    http.download(url, filename, headers=headers)
+    app.save_workbook()
 
 
-def write_exel_worksheet(filename, sheet_name, data):
-    app = Files()
+def write_investments_data(filename: str, data: dict, sheet_name: str = None) -> None:
+    app = utils.get_exel_app(filename, sheet_name)
 
-    if not os.path.exists(filename):
-        app.create_workbook(filename)
-    else:
-        app.open_workbook(filename)
-
-    if not app.worksheet_exists(sheet_name):
-        app.create_worksheet(sheet_name)
-
-    app.set_active_worksheet(sheet_name)
-
-    for index, value in enumerate(data, 1):
-        app.set_cell_value(row=index, column=1, value=value[0])
-        app.set_cell_value(row=index, column=2, value=value[1])
+    for index, item in enumerate(data, 1):
+        app.set_cell_value(row=index, column=1, value=item["uii"])
+        app.set_cell_value(row=index, column=2, value=item["investment"])
 
     app.save_workbook()
 
@@ -78,75 +56,90 @@ def write_exel_worksheet(filename, sheet_name, data):
 def select_agencies():
     agencies = []
 
-    agency_tiles_widget = browser.get_webelement('css:div[id="agency-tiles-widget"]')
+    for element in browser.find_elements("css:div#agency-tiles-widget .col-sm-12"):
 
-    for element in agency_tiles_widget.find_elements_by_css_selector(
-        'div[class="col-sm-12"]'
-    ):
-        title = element.find_element_by_css_selector("div:nth-child(2) span.h4").text
-        spending = element.find_element_by_css_selector("div:nth-child(2) span.h1").text
+        title = element.find_element(By.CSS_SELECTOR, "div:nth-child(2) span.h4").text
+        spending = element.find_element(
+            By.CSS_SELECTOR, "div:nth-child(2) span.h1"
+        ).text
 
-        agencies.append((title, spending))
+        agencies.append({"agency_name": title, "spending": spending})
 
     return agencies
 
 
+def download_pdf(links):
+    for link in links:
+        browser.go_to(link)
+        browser.wait_until_element_is_visible("css:div#business-case-pdf")
+        browser.click_element("css:div#business-case-pdf")
+
+        time.sleep(15)
+
+
 def select_investments_data():
     investments = []
-
-    investments_table = browser.get_webelement(
-        'css:table[id="investments-table-object"]'
-    )
+    pdf_links = []
 
     while True:
-        for table_row in investments_table.find_elements_by_tag_name("tr"):
-            uii = table_row.find_element_by_css_selector(":first-child")
+        for table_row in browser.find_elements("css:table#investments-table-object tr"):
+            uii = table_row.find_element(By.CSS_SELECTOR, ":first-child").text
 
             try:
-                uii.find_element_by_tag_name("a")
+                a = table_row.find_element(By.CSS_SELECTOR, ":first-child td a")
+                pdf_links.append(a.get_attribute("href"))
             except:
                 pass
-            else:
-                download_file(uii.text, f"./downloads/{uii.text}.pdf")
 
-            uii = uii.text
-            investment = table_row.find_element_by_css_selector(":nth-child(4)").text
+            investment = table_row.find_element(By.CSS_SELECTOR, ":nth-child(4)").text
 
             if uii and investment:
-                investments.append((uii, investment))
+                investments.append({"uii": uii, "investment": investment})
 
-        try:
-            browser.get_webelement('css:a[class="paginate_button next disabled"]')
-        except:
-            pass
-        else:
+        if browser.does_page_contain_element("css:a.paginate_button.next.disabled"):
             break
+        else:
+            browser.click_link("css:a.paginate_button.next")
 
-        browser.click_link('css:a[class="paginate_button next"]')
-        time.sleep(10)
+        while browser.is_element_visible("css:div.loading"):
+            time.sleep(0.5)
+
+        time.sleep(0.5)
+
+    download_pdf(pdf_links)
 
     return investments
 
 
-def store_web_page_content():
+def parse_main_page(output_file):
     browser.open_available_browser("https://itdashboard.gov")
-
-    button_selector = 'css:a[href="#home-dive-in"]'
-    browser.wait_until_page_contains_element(button_selector)
-    browser.get_webelement(button_selector).click()
-    browser.wait_until_element_is_visible('css:div[id="agency-tiles-widget"]')
+    browser.click_element_when_visible('css:a[href="#home-dive-in"]')
+    browser.wait_until_element_is_visible("css:div#agency-tiles-widget")
 
     agencies_data = select_agencies()
-    write_exel_worksheet("./Agencies.xlsx", "agencies", agencies_data)
+    write_agencies(output_file, agencies_data, "Agencies")
 
-    browser.go_to("https://itdashboard.gov/drupal/summary/422")
 
-    browser.wait_until_page_contains_element(
-        'css:table[id="investments-table-object"]', timeout=15
-    )
+def parse_sub_pages(output_file):
+    for link in utils.load_links():
+        browser.go_to(link)
 
-    investments_data = select_investments_data()
-    write_exel_worksheet("./Agencies.xlsx", "Individual Investments", investments_data)
+        browser.wait_until_page_contains_element(
+            'css:table[id="investments-table-object"]', timeout=15
+        )
+
+        investments_data = select_investments_data()
+        write_investments_data(output_file, investments_data, "Individual Investments")
+
+
+def store_web_page_content():
+    output_file = os.path.join(utils.output_direcrory, "Agencies.xlsx")
+
+    if not os.path.exists(utils.output_direcrory):
+        os.mkdir(utils.output_direcrory)
+
+    parse_main_page(output_file)
+    parse_sub_pages(output_file)
 
 
 def main():
