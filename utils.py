@@ -7,8 +7,8 @@ root = os.path.dirname(__file__)
 output_direcrory = os.path.join(root, "output")
 
 
-def load_links():
-    with open(os.path.join(root, "links.txt")) as file:
+def load_agency_names():
+    with open(os.path.join(root, "agencies.txt")) as file:
         return file.read().split("\n")
 
 

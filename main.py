@@ -24,7 +24,6 @@ import time
 import os
 
 from RPA.Browser.Selenium import Selenium
-from selenium.webdriver.common.by import By
 
 import utils
 
@@ -33,42 +32,58 @@ browser = Selenium()
 browser.set_download_directory(utils.output_direcrory)
 
 
-def write_agencies(filename: str, data: dict, sheet_name: str = None) -> None:
+def write_agencies(filename: str, data: list, sheet_name: str = None) -> None:
     app = utils.get_exel_app(filename, sheet_name)
 
-    for index, item in enumerate(data, 1):
-        app.set_cell_value(row=index, column=1, value=item["agency_name"])
-        app.set_cell_value(row=index, column=2, value=item["spending"])
+    for row, item in enumerate(data, 1):
+        for column, value in enumerate(item, 1):
+            app.set_cell_value(row=row, column=column, value=value)
 
     app.save_workbook()
 
 
-def write_investments_data(filename: str, data: dict, sheet_name: str = None) -> None:
+def write_investments_data(filename: str, data: list, sheet_name: str = None) -> None:
     app = utils.get_exel_app(filename, sheet_name)
 
-    for index, item in enumerate(data, 1):
-        app.set_cell_value(row=index, column=1, value=item["uii"])
-        app.set_cell_value(row=index, column=2, value=item["investment"])
+    for row, item in enumerate(data, 1):
+        for column, value in enumerate(item, 1):
+            app.set_cell_value(row=row, column=column, value=value)
 
     app.save_workbook()
 
 
-def select_agencies():
+def select_agencies() -> list:
     agencies = []
 
-    for element in browser.find_elements("css:div#agency-tiles-widget .col-sm-12"):
+    for element in browser.find_elements("css:div#agency-tiles-widget .col-sm-4"):
 
-        title = element.find_element(By.CSS_SELECTOR, "div:nth-child(2) span.h4").text
-        spending = element.find_element(
-            By.CSS_SELECTOR, "div:nth-child(2) span.h1"
+        title = browser.find_element("css:div.col-sm-12 span.h4", parent=element).text
+        spending = browser.find_element(
+            "css:div.col-sm-12 span.h1", parent=element
         ).text
 
-        agencies.append({"agency_name": title, "spending": spending})
+        agencies.append((title, spending))
 
     return agencies
 
 
-def download_pdf(links):
+def select_agencies_links(agencies: list) -> dict:
+    links = {}
+
+    container = browser.find_element("css:div#agency-tiles-widget")
+
+    for div in browser.find_elements("css:div.col-sm-12", parent=container):
+
+        title = browser.find_element("css:div:nth-child(2) span.h4", parent=div).text
+
+        if title in agencies:
+            href = browser.find_element("tag:a", parent=div).get_attribute("href")
+            links[title] = href
+
+    return links
+
+
+def download_pdf(links: list) -> None:
     for link in links:
         browser.go_to(link)
         browser.wait_until_element_is_visible("css:div#business-case-pdf")
@@ -77,41 +92,69 @@ def download_pdf(links):
         time.sleep(15)
 
 
-def select_investments_data():
+def select_investments_data() -> list:
     investments = []
-    pdf_links = []
 
-    while True:
-        for table_row in browser.find_elements("css:table#investments-table-object tr"):
-            uii = table_row.find_element(By.CSS_SELECTOR, ":first-child").text
+    header = browser.find_elements('css:table.datasource-table thead tr[role="row"] th')
 
-            try:
-                a = table_row.find_element(By.CSS_SELECTOR, ":first-child td a")
-                pdf_links.append(a.get_attribute("href"))
-            except:
-                pass
+    investments.append(
+        (
+            header[0].text,
+            header[1].text,
+            header[2].text,
+            header[3].text,
+            header[4].text,
+            header[5].text,
+            header[6].text,
+        )
+    )
 
-            investment = table_row.find_element(By.CSS_SELECTOR, ":nth-child(4)").text
+    browser.click_element('css:option[value="-1"]')
+    browser.wait_until_element_is_not_visible("css:div.loading", timeout=15)
 
-            if uii and investment:
-                investments.append({"uii": uii, "investment": investment})
+    for table_row in browser.find_elements(
+        "css:table#investments-table-object tbody tr"
+    ):
+        td = browser.find_elements("tag:td", parent=table_row)
 
-        if browser.does_page_contain_element("css:a.paginate_button.next.disabled"):
-            break
-        else:
-            browser.click_link("css:a.paginate_button.next")
-
-        while browser.is_element_visible("css:div.loading"):
-            time.sleep(0.5)
-
-        time.sleep(0.5)
-
-    download_pdf(pdf_links)
+        investments.append(
+            (
+                td[0].text,
+                td[1].text,
+                td[2].text,
+                td[3].text,
+                td[4].text,
+                td[5].text,
+                td[6].text,
+            )
+        )
 
     return investments
 
 
-def parse_main_page(output_file):
+def download_files() -> None:
+    pdf_links = []
+
+    for table_row in browser.find_elements(
+        "css:table#investments-table-object tbody tr"
+    ):
+        td = browser.find_elements("tag:td", parent=table_row)
+
+        try:
+            a = browser.find_element("tag:a", parent=td[0])
+            pdf_links.append(a.get_attribute("href"))
+        except:
+            pass
+
+    download_pdf(pdf_links)
+
+
+def store_web_page_content() -> None:
+    output_file = os.path.join(utils.output_direcrory, "Agencies.xlsx")
+
+    if not os.path.exists(utils.output_direcrory):
+        os.mkdir(utils.output_direcrory)
+
     browser.open_available_browser("https://itdashboard.gov")
     browser.click_element_when_visible('css:a[href="#home-dive-in"]')
     browser.wait_until_element_is_visible("css:div#agency-tiles-widget")
@@ -119,9 +162,10 @@ def parse_main_page(output_file):
     agencies_data = select_agencies()
     write_agencies(output_file, agencies_data, "Agencies")
 
+    agencies = utils.load_agency_names()
+    links = select_agencies_links(agencies)
 
-def parse_sub_pages(output_file):
-    for link in utils.load_links():
+    for agency_name, link in links.items():
         browser.go_to(link)
 
         browser.wait_until_page_contains_element(
@@ -129,20 +173,12 @@ def parse_sub_pages(output_file):
         )
 
         investments_data = select_investments_data()
-        write_investments_data(output_file, investments_data, "Individual Investments")
+        write_investments_data(output_file, investments_data, agency_name)
+
+        download_files()
 
 
-def store_web_page_content():
-    output_file = os.path.join(utils.output_direcrory, "Agencies.xlsx")
-
-    if not os.path.exists(utils.output_direcrory):
-        os.mkdir(utils.output_direcrory)
-
-    parse_main_page(output_file)
-    parse_sub_pages(output_file)
-
-
-def main():
+def main() -> None:
     try:
         store_web_page_content()
     finally:
