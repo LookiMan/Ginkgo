@@ -12,9 +12,8 @@ Your solution should be submitted and tested on Robocloud.
 Store downloaded files and Excel sheet to the root of the output folder
 
 TODO:
-
-We are looking for people that like going the extra mile if time allows or if your curiosity gets the best of you :солнцезащитные_очки: 
-Extract data from PDF. You need to get the data from Section A in each PDF. 
+ 
+Extract data from PDF. You need to get the data from Section A in each PDF.
 Then compare the value "Name of this Investment" with the column "Investment Title", 
 and the value "Unique Investment Identifier (UII)" with the column "UII".
 
@@ -32,17 +31,7 @@ browser = Selenium()
 browser.set_download_directory(utils.output_direcrory)
 
 
-def write_agencies(filename: str, data: list, sheet_name: str = None) -> None:
-    app = utils.get_exel_app(filename, sheet_name)
-
-    for row, item in enumerate(data, 1):
-        for column, value in enumerate(item, 1):
-            app.set_cell_value(row=row, column=column, value=value)
-
-    app.save_workbook()
-
-
-def write_investments_data(filename: str, data: list, sheet_name: str = None) -> None:
+def write_data(filename: str, data: list, sheet_name: str = None) -> None:
     app = utils.get_exel_app(filename, sheet_name)
 
     for row, item in enumerate(data, 1):
@@ -94,7 +83,6 @@ def download_pdf(links: list) -> None:
 
 def select_investments_data() -> list:
     investments = []
-
     header = browser.find_elements('css:table.datasource-table thead tr[role="row"] th')
 
     investments.append(
@@ -149,6 +137,39 @@ def download_files() -> None:
     download_pdf(pdf_links)
 
 
+def compare_data(investments_data: list) -> None:
+    output = []
+    files_data = utils.parse_pdf_files()
+
+    for row in investments_data:
+        for file_data in files_data:
+            if file_data["unique_investment_identifier"] == row[0]:
+                output.append(
+                    [
+                        file_data["unique_investment_identifier"],
+                        row[0],
+                        file_data["name_of_this_investment"],
+                        row[2],
+                        "Yes"
+                        if file_data["name_of_this_investment"] == row[2]
+                        else "No",
+                    ]
+                )
+
+    output.insert(
+        0,
+        [
+            "Unique investment identifier in file",
+            "Unique investment identifier in column",
+            "Name of this investment in file",
+            "Name of this investment in column",
+            "Is same",
+        ],
+    )
+
+    return output
+
+
 def store_web_page_content() -> None:
     output_file = os.path.join(utils.output_direcrory, "Agencies.xlsx")
 
@@ -160,7 +181,7 @@ def store_web_page_content() -> None:
     browser.wait_until_element_is_visible("css:div#agency-tiles-widget")
 
     agencies_data = select_agencies()
-    write_agencies(output_file, agencies_data, "Agencies")
+    write_data(output_file, agencies_data, "Agencies")
 
     agencies = utils.load_agency_names()
     links = select_agencies_links(agencies)
@@ -173,9 +194,12 @@ def store_web_page_content() -> None:
         )
 
         investments_data = select_investments_data()
-        write_investments_data(output_file, investments_data, agency_name)
+        write_data(output_file, investments_data, agency_name)
 
         download_files()
+
+    results = compare_data(investments_data)
+    write_data(output_file, results, "Comparison results")
 
 
 def main() -> None:
